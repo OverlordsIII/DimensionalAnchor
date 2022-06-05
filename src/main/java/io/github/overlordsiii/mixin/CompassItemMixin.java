@@ -137,10 +137,12 @@ public abstract class CompassItemMixin extends Item {
 
 		BlockPos targetPos = null;
 
+		LOGGER.info("Found random world to tp to: " + randomWorld.getRegistryKey());
+
 		while (targetPos == null) {
 			int x = random.nextInt(-15000, 15001);
 			int z = random.nextInt(-15000, 15001);
-			int y = random.nextInt(-63, 320);
+			int y = random.nextInt(-63, 300);
 
 			BlockPos attemptedPos = new BlockPos(x, y, z);
 			if ((world.getBlockState(attemptedPos).isAir() && world.getBlockState(attemptedPos.up()).isAir()) || (world.getBlockState(attemptedPos).getFluidState().isIn(FluidTags.WATER)) || (world.getBlockState(attemptedPos).getFluidState().isIn(FluidTags.LAVA))) {
@@ -149,7 +151,7 @@ public abstract class CompassItemMixin extends Item {
 		}
 
 		LOGGER.info("Found target BlockPos: " + targetPos + ". Teleporting now...");
-		user.teleport(targetPos.getX(), targetPos.getY(), targetPos.getZ());
+		FabricDimensions.teleport(user, randomWorld, new TeleportTarget(new Vec3d(targetPos.getX(), targetPos.getY() + 1, targetPos.getZ()), user.getVelocity(), user.getYaw(), user.getPitch()));
 	}
 
 
@@ -182,9 +184,7 @@ public abstract class CompassItemMixin extends Item {
 					user.teleport(targetPos.getX(), targetPos.getY(), targetPos.getZ());
 				}
 			}
-			default -> {
-				throw new IllegalStateException("Tried to do consequences for Dimensional Anchor with a value higher than expected!");
-			}
+			default -> throw new IllegalStateException("Tried to do consequences for Dimensional Anchor with a value higher than expected!");
 		}
 	}
 }
