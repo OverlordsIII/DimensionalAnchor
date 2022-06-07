@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 import com.google.common.collect.Lists;
 import org.checkerframework.checker.units.qual.A;
@@ -82,9 +83,9 @@ public abstract class CompassItemMixin extends Item {
 					LOGGER.info("Dimensional Anchor used: Same dimension");
 					if (CONFIG.xpTpCosts) {
 						LOGGER.info("xpTpCosts enabled");
-						if (user.experienceLevel >= 5) {
+						if (user.experienceLevel >= CONFIG.xpCostSameDimension || shouldAllowInCreative(user)) {
 							LOGGER.info("same dimension travel critera met. Executing...");
-							user.addExperienceLevels(-5);
+							user.addExperienceLevels(-CONFIG.xpCostSameDimension);
 							user.teleport(pos.getX(), pos.getY() + 1, pos.getZ());
 							LOGGER.info("Executed.");
 						} else if (CONFIG.xpConsequence) {
@@ -105,9 +106,9 @@ public abstract class CompassItemMixin extends Item {
 					ServerWorld lodestoneDimension = Objects.requireNonNull(world.getServer()).getWorld(optional.get());
 					if (CONFIG.xpTpCosts) {
 						LOGGER.info("xpTpCosts enabled");
-						if (user.experienceLevel >= 30) {
+						if (user.experienceLevel >= CONFIG.xpCostDifferentDimension || shouldAllowInCreative(user)) {
 							LOGGER.info("different dimension travel critera met. Executing...");
-							user.addExperienceLevels(-30);
+							user.addExperienceLevels(-CONFIG.xpCostDifferentDimension);
 							FabricDimensions.teleport(user, lodestoneDimension, new TeleportTarget(new Vec3d(pos.getX(), pos.getY() + 1, pos.getZ()), user.getVelocity(), user.getYaw(), user.getPitch()));
 							LOGGER.info("Executed.");
 						} else if (CONFIG.xpConsequence) {
@@ -132,6 +133,21 @@ public abstract class CompassItemMixin extends Item {
 		world.playSound(user, user.getBlockPos(), SoundEvents.BLOCK_ANVIL_BREAK, SoundCategory.AMBIENT, 1f, 1f);
 
 		List<World> worlds = Lists.newArrayList(Objects.requireNonNull(world.getServer()).getWorlds());
+
+		if (!CONFIG.allowTpToEnd) {
+			LOGGER.info("TP to the end disabled, removing it from worlds list...");
+
+			LOGGER.info("Worlds list before: " + toStringList(worlds));
+
+			worlds = worlds
+				.stream()
+				.filter(world1 -> !world1.getRegistryKey().toString().contains("minecraft:the_end"))
+				.collect(Collectors.toList());
+
+			LOGGER.info("Worlds list after: " + toStringList(worlds));
+
+		}
+
 		// can cast since server only holds serverworlds
 		ServerWorld randomWorld = (ServerWorld) worlds.get(random.nextInt(worlds.size()));
 
@@ -145,7 +161,7 @@ public abstract class CompassItemMixin extends Item {
 			int y = random.nextInt(-63, 300);
 
 			BlockPos attemptedPos = new BlockPos(x, y, z);
-			if ((world.getBlockState(attemptedPos).isAir() && world.getBlockState(attemptedPos.up()).isAir()) || (world.getBlockState(attemptedPos).getFluidState().isIn(FluidTags.WATER)) || (world.getBlockState(attemptedPos).getFluidState().isIn(FluidTags.LAVA))) {
+			if ((world.getBlockState(attemptedPos).isAir() && world.getBlockState(attemptedPos.up()).isAir()) || (world.getBlockState(attemptedPos).getFluidState().isIn(FluidTags.WATER))) {
 				targetPos = attemptedPos;
 			}
 		}
@@ -159,7 +175,7 @@ public abstract class CompassItemMixin extends Item {
 		switch (rand) {
 			case 0 -> {
 				LOGGER.info("case 0, damaging user and tp..ing to right coords");
-				user.damage(DamageSource.OUT_OF_WORLD, random.nextInt(5) + 1);
+				user.damage(DamageSource.GENERIC, random.nextInt(5) + 1);
 				user.teleport(pos.getX(), pos.getY() + 1, pos.getZ());
 			}
 			case 1 -> {
@@ -171,7 +187,7 @@ public abstract class CompassItemMixin extends Item {
 				LOGGER.info("case 2, tping randomly within 25 block radius of lodestone blockPos: " + pos);
 				BlockPos targetPos = null;
 				for (BlockPos blockPos : BlockPos.iterateRandomly(random, 300, pos, 25)) {
-					if ((world.getBlockState(blockPos).isAir() && world.getBlockState(blockPos.up()).isAir()) || (world.getBlockState(blockPos).getFluidState().isIn(FluidTags.WATER)) || (world.getBlockState(blockPos).getFluidState().isIn(FluidTags.LAVA))) {
+					if ((world.getBlockState(blockPos).isAir() && world.getBlockState(blockPos.up()).isAir()) || (world.getBlockState(blockPos).getFluidState().isIn(FluidTags.WATER))) {
 						targetPos = blockPos;
 						break;
 					}
@@ -186,5 +202,26 @@ public abstract class CompassItemMixin extends Item {
 			}
 			default -> throw new IllegalStateException("Tried to do consequences for Dimensional Anchor with a value higher than expected!");
 		}
+	}
+
+	/**
+	 * returns if the cost should be free depending on environment
+	 * @return true if tp cost is bypassed, return false if it is not
+	 */
+	private boolean shouldAllowInCreative(PlayerEntity entity) {
+
+		if (entity.isCreative()) {
+			return !FabricLoader.getInstance().isDevelopmentEnvironment();
+		}
+
+		return false;
+	}
+
+	private List<String> toStringList(List<World> worldsList) {
+		return worldsList
+			.stream()
+			.map(World::getRegistryKey)
+			.map(RegistryKey::toString)
+			.collect(Collectors.toList());
 	}
 }
