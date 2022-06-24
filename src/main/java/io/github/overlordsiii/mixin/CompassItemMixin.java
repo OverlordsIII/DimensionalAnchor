@@ -13,6 +13,9 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import net.minecraft.block.BedBlock;
+import net.minecraft.entity.EntityType;
+import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.CompassItem;
@@ -25,10 +28,11 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.tag.FluidTags;
-import net.minecraft.text.LiteralText;
+import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
 import net.minecraft.util.TypedActionResult;
+import net.minecraft.util.UseAction;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Boxes;
@@ -52,7 +56,107 @@ public abstract class CompassItemMixin extends Item {
 	private void sendMessageToUser(ItemUsageContext context, CallbackInfoReturnable<ActionResult> cir) {
 		if (FabricLoader.getInstance().isDevelopmentEnvironment()) {
 			// debug
-			context.getPlayer().sendMessage(new LiteralText("Linked!"), true);
+			context.getPlayer().sendMessage(Text.literal("Linked!"), true);
+		}
+	}
+
+	@Override
+	public UseAction getUseAction(ItemStack stack) {
+		return UseAction.BOW;
+	}
+
+	/**
+	 * {@return the maximum use (right-click) time of this item, in ticks}
+	 * Once a player has used an item for said number of ticks, they stop using it, and {@link Item#finishUsing} is called.
+	 *
+	 * @param stack
+	 */
+	@Override
+	public int getMaxUseTime(ItemStack stack) {
+		return 24;
+	}
+
+	@Override
+	public boolean isUsedOnRelease(ItemStack stack) {
+		return true;
+	}
+
+
+
+	@Override
+	public void onStoppedUsing(ItemStack stack, World world, LivingEntity entity, int remainingUseTicks) {
+		if ((entity instanceof PlayerEntity user) && !world.isClient && remainingUseTicks <= 0) {
+			if (CompassItem.hasLodestone(stack) && !world.isClient()) {
+				// can ignore warning since we already checked if compass is linked to lodestone
+				BlockPos pos = NbtHelper.toBlockPos((NbtCompound) stack.getOrCreateNbt().get(CompassItem.LODESTONE_POS_KEY));
+				Optional<RegistryKey<World>> optional = CompassItemInvoker.callGetLodestoneDimension(stack.getOrCreateNbt());
+				if (optional.isPresent()) {
+					// same dimension as user
+					if (optional.get().equals(world.getRegistryKey())) {
+						info("Dimensional Anchor used: Same dimension");
+						if (CONFIG.xpTpCosts) {
+							info("xpTpCosts enabled");
+							if (user.experienceLevel >= CONFIG.xpCostSameDimension || shouldAllowInCreative(user)) {
+								info("same dimension travel critera met. Executing...");
+								BlockPos tpPos = findTpPosition(pos, world);
+								if (tpPos != null) {
+									user.addExperienceLevels(-CONFIG.xpCostSameDimension);
+									user.teleport(tpPos.getX(), tpPos.getY() + 1, tpPos.getZ());
+								} else {
+									user.sendMessage(Text.literal("Could not find suitable spot to teleport to! Teleport canceled"), true);
+								}
+								info("Executed.");
+							} else if (CONFIG.xpConsequence) {
+								info("Same dimension travel criteria NOT met. Executing consequences...");
+								Random random = new Random();
+								int rand = random.nextInt(3);
+								doSameDimensionConsequences(rand, user, pos, stack, world, random);
+								info("Executed.");
+							}
+							return;
+						}
+						info("xpTpCosts not enabled, teleporting normally...");
+						BlockPos tpPos = findTpPosition(pos, world);
+						if (tpPos != null) {
+							user.addExperienceLevels(-CONFIG.xpCostSameDimension);
+							user.teleport(tpPos.getX(), tpPos.getY() + 1, tpPos.getZ());
+						} else {
+							user.sendMessage(Text.literal("Could not find suitable spot to teleport to! Teleport canceled"), true);
+						}					}
+					// different dimension
+					else {
+						info("Dimensional Anchor used: Different dimension");
+						ServerWorld lodestoneDimension = Objects.requireNonNull(world.getServer()).getWorld(optional.get());
+						if (CONFIG.xpTpCosts) {
+							info("xpTpCosts enabled");
+							if (user.experienceLevel >= CONFIG.xpCostDifferentDimension || shouldAllowInCreative(user)) {
+								info("different dimension travel critera met. Executing...");
+								user.addExperienceLevels(-CONFIG.xpCostDifferentDimension);
+								BlockPos tpPos = findTpPosition(pos, lodestoneDimension);
+								if (tpPos != null) {
+									FabricDimensions.teleport(user, lodestoneDimension, new TeleportTarget(new Vec3d(tpPos.getX(), tpPos.getY() + 1, tpPos.getZ()), user.getVelocity(), user.getYaw(), user.getPitch()));
+								} else {
+									user.sendMessage(Text.literal("Could not find suitable spot to teleport to! Teleport canceled"), true);
+								}
+								info("Executed.");
+							} else if (CONFIG.xpConsequence) {
+								info("Different dimension travel criteria NOT met. Executing consequences...");
+								Random random = new Random();
+
+								doDifferentDimensionConsequences(user, stack, world, random);
+								info("Executed.");
+							}
+							return;
+						}
+						BlockPos tpPos = findTpPosition(pos, lodestoneDimension);
+						if (tpPos != null) {
+							FabricDimensions.teleport(user, lodestoneDimension, new TeleportTarget(new Vec3d(tpPos.getX(), tpPos.getY() + 1, tpPos.getZ()), user.getVelocity(), user.getYaw(), user.getPitch()));
+						} else {
+							user.sendMessage(Text.literal("Could not find suitable spot to teleport to! Teleport canceled"), true);
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -72,58 +176,8 @@ public abstract class CompassItemMixin extends Item {
 	 */
 	@Override
 	public TypedActionResult<ItemStack> use(World world, PlayerEntity user, Hand hand) {
-		ItemStack stack = user.getStackInHand(hand);
-		if (CompassItem.hasLodestone(stack) && !world.isClient()) {
-			// can ignore warning since we already checked if compass is linked to lodestone
-			BlockPos pos = NbtHelper.toBlockPos((NbtCompound) stack.getOrCreateNbt().get(CompassItem.LODESTONE_POS_KEY));
-			Optional<RegistryKey<World>> optional = CompassItem.getLodestoneDimension(stack.getOrCreateNbt());
-			if (optional.isPresent()) {
-				// same dimension as user
-				if (optional.get().equals(world.getRegistryKey())) {
-					LOGGER.info("Dimensional Anchor used: Same dimension");
-					if (CONFIG.xpTpCosts) {
-						LOGGER.info("xpTpCosts enabled");
-						if (user.experienceLevel >= CONFIG.xpCostSameDimension || shouldAllowInCreative(user)) {
-							LOGGER.info("same dimension travel critera met. Executing...");
-							user.addExperienceLevels(-CONFIG.xpCostSameDimension);
-							user.teleport(pos.getX(), pos.getY() + 1, pos.getZ());
-							LOGGER.info("Executed.");
-						} else if (CONFIG.xpConsequence) {
-							LOGGER.info("Same dimension travel criteria NOT met. Executing consequences...");
-							Random random = new Random();
-							int rand = random.nextInt(3);
-							doSameDimensionConsequences(rand, user, pos, stack, world, random);
-							LOGGER.info("Executed.");
-						}
-						return super.use(world, user, hand);
-					}
-					LOGGER.info("xpTpCosts not enabled, teleporting normally...");
-					user.teleport(pos.getX(), pos.getY() + 1, pos.getZ());
-				}
-				// different dimension
-				else {
-					LOGGER.info("Dimensional Anchor used: Different dimension");
-					ServerWorld lodestoneDimension = Objects.requireNonNull(world.getServer()).getWorld(optional.get());
-					if (CONFIG.xpTpCosts) {
-						LOGGER.info("xpTpCosts enabled");
-						if (user.experienceLevel >= CONFIG.xpCostDifferentDimension || shouldAllowInCreative(user)) {
-							LOGGER.info("different dimension travel critera met. Executing...");
-							user.addExperienceLevels(-CONFIG.xpCostDifferentDimension);
-							FabricDimensions.teleport(user, lodestoneDimension, new TeleportTarget(new Vec3d(pos.getX(), pos.getY() + 1, pos.getZ()), user.getVelocity(), user.getYaw(), user.getPitch()));
-							LOGGER.info("Executed.");
-						} else if (CONFIG.xpConsequence) {
-							LOGGER.info("Different dimension travel criteria NOT met. Executing consequences...");
-							Random random = new Random();
-
-							doDifferentDimensionConsequences(user, stack, world, random);
-							LOGGER.info("Executed.");
-						}
-						return super.use(world, user, hand);
-					}
-					FabricDimensions.teleport(user, lodestoneDimension, new TeleportTarget(new Vec3d(pos.getX(), pos.getY() + 1, pos.getZ()), user.getVelocity(), user.getYaw(), user.getPitch()));
-				}
-			}
-		}
+		user.sendMessage(Text.literal("Charging... (let go when fully charged)"), true);
+		user.setCurrentHand(hand);
 		return super.use(world, user, hand);
 	}
 
@@ -135,16 +189,16 @@ public abstract class CompassItemMixin extends Item {
 		List<World> worlds = Lists.newArrayList(Objects.requireNonNull(world.getServer()).getWorlds());
 
 		if (!CONFIG.allowTpToEnd) {
-			LOGGER.info("TP to the end disabled, removing it from worlds list...");
+			info("TP to the end disabled, removing it from worlds list...");
 
-			LOGGER.info("Worlds list before: " + toStringList(worlds));
+			info("Worlds list before: " + toStringList(worlds));
 
 			worlds = worlds
 				.stream()
 				.filter(world1 -> !world1.getRegistryKey().toString().contains("minecraft:the_end"))
 				.collect(Collectors.toList());
 
-			LOGGER.info("Worlds list after: " + toStringList(worlds));
+			info("Worlds list after: " + toStringList(worlds));
 
 		}
 
@@ -153,7 +207,7 @@ public abstract class CompassItemMixin extends Item {
 
 		BlockPos targetPos = null;
 
-		LOGGER.info("Found random world to tp to: " + randomWorld.getRegistryKey());
+		info("Found random world to tp to: " + randomWorld.getRegistryKey());
 
 		while (targetPos == null) {
 			int x = random.nextInt(-15000, 15001);
@@ -166,7 +220,7 @@ public abstract class CompassItemMixin extends Item {
 			}
 		}
 
-		LOGGER.info("Found target BlockPos: " + targetPos + ". Teleporting now...");
+		info("Found target BlockPos: " + targetPos + ". Teleporting now...");
 		FabricDimensions.teleport(user, randomWorld, new TeleportTarget(new Vec3d(targetPos.getX(), targetPos.getY() + 1, targetPos.getZ()), user.getVelocity(), user.getYaw(), user.getPitch()));
 	}
 
@@ -174,29 +228,34 @@ public abstract class CompassItemMixin extends Item {
 	private void doSameDimensionConsequences(int rand, PlayerEntity user, BlockPos pos, ItemStack stack, World world, Random random) {
 		switch (rand) {
 			case 0 -> {
-				LOGGER.info("case 0, damaging user and tp..ing to right coords");
+				info("case 0, damaging user and tp..ing to right coords");
 				user.damage(DamageSource.GENERIC, random.nextInt(5) + 1);
-				user.teleport(pos.getX(), pos.getY() + 1, pos.getZ());
+				BlockPos tpPos = findTpPosition(pos, world);
+				if (tpPos != null) {
+					user.teleport(tpPos.getX(), tpPos.getY() + 1, tpPos.getZ());
+				} else {
+					user.sendMessage(Text.literal("Could not find suitable spot to teleport to! Teleport canceled"), true);
+				}
 			}
 			case 1 -> {
-				LOGGER.info("case 1, getting rid of compass");
+				info("case 1, getting rid of compass");
 				stack.decrement(1);
 				world.playSound(user, user.getBlockPos(), SoundEvents.BLOCK_ANVIL_BREAK, SoundCategory.AMBIENT, 1f, 1f);
 			}
 			case 2 -> {
-				LOGGER.info("case 2, tping randomly within 25 block radius of lodestone blockPos: " + pos);
+				info("case 2, tping randomly within 25 block radius of lodestone blockPos: " + pos);
 				BlockPos targetPos = null;
-				for (BlockPos blockPos : BlockPos.iterateRandomly(random, 300, pos, 25)) {
+				for (BlockPos blockPos : BlockPos.iterateRandomly(net.minecraft.util.math.random.Random.create(), 300, pos, 25)) {
 					if ((world.getBlockState(blockPos).isAir() && world.getBlockState(blockPos.up()).isAir()) || (world.getBlockState(blockPos).getFluidState().isIn(FluidTags.WATER))) {
 						targetPos = blockPos;
 						break;
 					}
 				}
 				if (targetPos == null) {
-					LOGGER.info("could not find suitable coord to tp too, doing same dim consequences again");
+					info("could not find suitable coord to tp too, doing same dim consequences again");
 					doSameDimensionConsequences(random.nextInt(2), user, pos, stack, world, random);
 				} else {
-					LOGGER.info("Found target BlockPos: " + targetPos + ". Teleporting now...");
+					info("Found target BlockPos: " + targetPos + ". Teleporting now...");
 					user.teleport(targetPos.getX(), targetPos.getY(), targetPos.getZ());
 				}
 			}
@@ -204,11 +263,28 @@ public abstract class CompassItemMixin extends Item {
 		}
 	}
 
+	private static BlockPos findTpPosition(BlockPos lodestonePos, World world) {
+
+		if ((world.getBlockState(lodestonePos.up()).isAir() && world.getBlockState(lodestonePos.up().up()).isAir()) || (world.getBlockState(lodestonePos).getFluidState().isIn(FluidTags.WATER))) {
+			return lodestonePos;
+		}
+
+		BlockPos targetPos = null;
+		for (BlockPos blockPos : BlockPos.iterateOutwards(lodestonePos, 5, 5, 5)) {
+			if ((world.getBlockState(blockPos).isAir() && world.getBlockState(blockPos.up()).isAir()) || (world.getBlockState(blockPos).getFluidState().isIn(FluidTags.WATER))) {
+				targetPos = blockPos;
+				break;
+			}
+		}
+
+		return targetPos;
+	}
+
 	/**
 	 * returns if the cost should be free depending on environment
 	 * @return true if tp cost is bypassed, return false if it is not
 	 */
-	private boolean shouldAllowInCreative(PlayerEntity entity) {
+	private static boolean shouldAllowInCreative(PlayerEntity entity) {
 
 		if (entity.isCreative()) {
 			return !FabricLoader.getInstance().isDevelopmentEnvironment();
@@ -217,11 +293,17 @@ public abstract class CompassItemMixin extends Item {
 		return false;
 	}
 
-	private List<String> toStringList(List<World> worldsList) {
+	private static List<String> toStringList(List<World> worldsList) {
 		return worldsList
 			.stream()
 			.map(World::getRegistryKey)
 			.map(RegistryKey::toString)
 			.collect(Collectors.toList());
+	}
+
+	private static void info(String s) {
+		if (FabricLoader.getInstance().isDevelopmentEnvironment()) {
+			LOGGER.info(s);
+		}
 	}
 }

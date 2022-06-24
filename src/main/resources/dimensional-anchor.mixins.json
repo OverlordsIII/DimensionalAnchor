@@ -4,6 +4,7 @@
   "package": "io.github.overlordsiii.mixin",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
+    "CompassItemInvoker",
     "CompassItemMixin"
   ],
   "client": [
