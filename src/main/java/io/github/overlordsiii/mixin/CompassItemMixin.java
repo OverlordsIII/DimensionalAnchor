@@ -7,14 +7,12 @@ import java.util.Random;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.Lists;
-import org.checkerframework.checker.units.qual.A;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import net.minecraft.block.BedBlock;
-import net.minecraft.entity.EntityType;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.player.PlayerEntity;
@@ -34,8 +32,6 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.TypedActionResult;
 import net.minecraft.util.UseAction;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Boxes;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.registry.RegistryKey;
 import net.minecraft.world.TeleportTarget;
@@ -48,6 +44,9 @@ import static io.github.overlordsiii.DimensionalAnchor.*;
 
 @Mixin(CompassItem.class)
 public abstract class CompassItemMixin extends Item {
+
+	private int fovPrevious;
+
 	public CompassItemMixin(Settings settings) {
 		super(settings);
 	}
@@ -62,8 +61,13 @@ public abstract class CompassItemMixin extends Item {
 
 	@Override
 	public UseAction getUseAction(ItemStack stack) {
-		return UseAction.BOW;
+		if (CompassItem.hasLodestone(stack)) {
+			return UseAction.BOW;
+		}
+
+		return super.getUseAction(stack);
 	}
+
 
 	/**
 	 * {@return the maximum use (right-click) time of this item, in ticks}
@@ -73,7 +77,10 @@ public abstract class CompassItemMixin extends Item {
 	 */
 	@Override
 	public int getMaxUseTime(ItemStack stack) {
-		return 24;
+		if (CompassItem.hasLodestone(stack)) {
+			return 24;
+		}
+		return super.getMaxUseTime(stack);
 	}
 
 	@Override
@@ -85,6 +92,11 @@ public abstract class CompassItemMixin extends Item {
 
 	@Override
 	public void onStoppedUsing(ItemStack stack, World world, LivingEntity entity, int remainingUseTicks) {
+
+		if (world.isClient) {
+			MinecraftClient.getInstance().options.getFov().setValue(this.fovPrevious);
+		}
+
 		if ((entity instanceof PlayerEntity user) && !world.isClient && remainingUseTicks <= 0) {
 			if (CompassItem.hasLodestone(stack) && !world.isClient()) {
 				// can ignore warning since we already checked if compass is linked to lodestone
@@ -176,8 +188,11 @@ public abstract class CompassItemMixin extends Item {
 	 */
 	@Override
 	public TypedActionResult<ItemStack> use(World world, PlayerEntity user, Hand hand) {
-		user.sendMessage(Text.literal("Charging... (let go when fully charged)"), true);
-		user.setCurrentHand(hand);
+		if (CompassItem.hasLodestone(user.getStackInHand(hand))) {
+			user.sendMessage(Text.literal("Charging... (let go when fully charged)"), true);
+			user.setCurrentHand(hand);
+			this.fovPrevious = MinecraftClient.getInstance().options.getFov().getValue();
+		}
 		return super.use(world, user, hand);
 	}
 
@@ -305,5 +320,6 @@ public abstract class CompassItemMixin extends Item {
 		if (FabricLoader.getInstance().isDevelopmentEnvironment()) {
 			LOGGER.info(s);
 		}
+
 	}
 }
