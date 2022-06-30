@@ -95,6 +95,7 @@ public abstract class CompassItemMixin extends Item {
 
 		if (world.isClient) {
 			MinecraftClient.getInstance().options.getFov().setValue(this.fovPrevious);
+			return;
 		}
 
 		if ((entity instanceof PlayerEntity user) && !world.isClient && remainingUseTicks <= 0) {
@@ -189,12 +190,17 @@ public abstract class CompassItemMixin extends Item {
 	@Override
 	public TypedActionResult<ItemStack> use(World world, PlayerEntity user, Hand hand) {
 		if (CompassItem.hasLodestone(user.getStackInHand(hand))) {
+			if (world.isClient) {
+				this.fovPrevious = MinecraftClient.getInstance().options.getFov().getValue();
+				return super.use(world, user, hand);
+			}
 			user.sendMessage(Text.literal("Charging... (let go when fully charged)"), true);
 			user.setCurrentHand(hand);
-			this.fovPrevious = MinecraftClient.getInstance().options.getFov().getValue();
 		}
 		return super.use(world, user, hand);
 	}
+
+
 
 	private void doDifferentDimensionConsequences(PlayerEntity user, ItemStack stack, World world, Random random) {
 		user.damage(DamageSource.OUT_OF_WORLD, random.nextInt(6) + 5);
