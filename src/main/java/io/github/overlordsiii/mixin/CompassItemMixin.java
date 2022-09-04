@@ -7,12 +7,12 @@ import java.util.Random;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.Lists;
+import io.github.overlordsiii.client.FOVSetter;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.player.PlayerEntity;
@@ -21,6 +21,7 @@ import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.ItemUsageContext;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtHelper;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
@@ -45,7 +46,7 @@ import static io.github.overlordsiii.DimensionalAnchor.*;
 @Mixin(CompassItem.class)
 public abstract class CompassItemMixin extends Item {
 
-	private int fovPrevious;
+	private final FOVSetter fovSetter = new FOVSetter();
 
 	public CompassItemMixin(Settings settings) {
 		super(settings);
@@ -94,14 +95,17 @@ public abstract class CompassItemMixin extends Item {
 	public void onStoppedUsing(ItemStack stack, World world, LivingEntity entity, int remainingUseTicks) {
 
 		if (world.isClient) {
-			MinecraftClient.getInstance().options.getFov().setValue(this.fovPrevious);
+			fovSetter.setMinecraftFov();
 			return;
 		}
 
 		if ((entity instanceof PlayerEntity user) && !world.isClient && remainingUseTicks <= 0) {
 			if (CompassItem.hasLodestone(stack) && !world.isClient()) {
-				// can ignore warning since we already checked if compass is linked to lodestone
-				BlockPos pos = NbtHelper.toBlockPos((NbtCompound) stack.getOrCreateNbt().get(CompassItem.LODESTONE_POS_KEY));
+				NbtElement lodestonePosKey = stack.getOrCreateNbt().get(CompassItem.LODESTONE_POS_KEY);
+				if (lodestonePosKey == null) {
+					return; // happens if lodestone is broken
+				}
+				BlockPos pos = NbtHelper.toBlockPos((NbtCompound) lodestonePosKey);
 				Optional<RegistryKey<World>> optional = CompassItemInvoker.callGetLodestoneDimension(stack.getOrCreateNbt());
 				if (optional.isPresent()) {
 					// same dimension as user
@@ -191,7 +195,12 @@ public abstract class CompassItemMixin extends Item {
 	public TypedActionResult<ItemStack> use(World world, PlayerEntity user, Hand hand) {
 		if (CompassItem.hasLodestone(user.getStackInHand(hand))) {
 			if (world.isClient) {
-				this.fovPrevious = MinecraftClient.getInstance().options.getFov().getValue();
+				fovSetter.getFov();
+				return super.use(world, user, hand);
+			}
+			NbtElement lodestonePosKey = user.getStackInHand(hand).getOrCreateNbt().get(CompassItem.LODESTONE_POS_KEY);
+			if (lodestonePosKey == null) {
+				user.sendMessage(Text.literal("Could not locate lodestone, was it broken?"), true);
 				return super.use(world, user, hand);
 			}
 			user.sendMessage(Text.literal("Charging... (let go when fully charged)"), true);
