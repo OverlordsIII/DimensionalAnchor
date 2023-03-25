@@ -23,10 +23,11 @@ import net.minecraft.item.ItemUsageContext;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtHelper;
+import net.minecraft.registry.RegistryKey;
+import net.minecraft.registry.tag.FluidTags;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
-import net.minecraft.tag.FluidTags;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -34,7 +35,6 @@ import net.minecraft.util.TypedActionResult;
 import net.minecraft.util.UseAction;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.registry.RegistryKey;
 import net.minecraft.world.TeleportTarget;
 import net.minecraft.world.World;
 
@@ -212,7 +212,7 @@ public abstract class CompassItemMixin extends Item {
 
 
 	private void doDifferentDimensionConsequences(PlayerEntity user, ItemStack stack, World world, Random random) {
-		user.damage(DamageSource.OUT_OF_WORLD, random.nextInt(6) + 5);
+		user.damage(world.getDamageSources().outOfWorld(), random.nextInt(6) + 5);
 		stack.decrement(1);
 		world.playSound(user, user.getBlockPos(), SoundEvents.BLOCK_ANVIL_BREAK, SoundCategory.AMBIENT, 1f, 1f);
 
@@ -259,7 +259,7 @@ public abstract class CompassItemMixin extends Item {
 		switch (rand) {
 			case 0 -> {
 				info("case 0, damaging user and tp..ing to right coords");
-				user.damage(DamageSource.GENERIC, random.nextInt(5) + 1);
+				user.damage(world.getDamageSources().generic(), random.nextInt(5) + 1);
 				BlockPos tpPos = findTpPosition(pos, world);
 				if (tpPos != null) {
 					user.teleport(tpPos.getX(), tpPos.getY() + 1, tpPos.getZ());
