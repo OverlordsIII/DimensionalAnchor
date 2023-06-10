@@ -50,7 +50,7 @@ public class DimensionalAnchorCommand {
 
 		String text = String.format(displayText, newValue);
 		ctx.getSource().sendFeedback(
-			Text.literal(text)
+			() -> Text.literal(text)
 				.formatted(Formatting.YELLOW)
 				.styled(style -> style
 					.withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/dimensional-anchor toggle " + literal))
@@ -76,7 +76,7 @@ public class DimensionalAnchorCommand {
 
 		String text = String.format(displayText, onOrOff);
 		ctx.getSource().sendFeedback(
-			Text.literal(text)
+			() -> Text.literal(text)
 				.formatted(Formatting.YELLOW)
 				.styled(style -> style
 					.withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/dimensional-anchor toggle " + literal))
